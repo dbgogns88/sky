@@ -1,0 +1,14 @@
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = false
+
+[server]
+enableStaticServing = true
+
+[theme]
+base = "dark"
+primaryColor = "#818CF8"
+backgroundColor = "#0B1120"
+secondaryBackgroundColor = "#151E2E"
+textColor = "#E2E8F0"
+font = "sans serif"
