@@ -70,13 +70,13 @@ TEXT_COLS = [
     "phoneNumber", "fax", "billingStreet", "billingCity", "billingState",
     "billingZipcode", "billingCountry", "shipToCompanyName", "shippingStreet",
     "shippingCity", "shippingState", "shippingZipcode", "shippingCountry",
-    "styleNo", "vendorStyleNo", "Color/Scent", "size", "pack",
+    "styleNo", "vendorStyleNo", "Color/Scent", "size", "pack", "totalQty",
     "stockAvailability", "supplierName", "cancelDate",
 ]
 
 NUMERIC_COLS = [
     "totalAmount", "discount", "couponAmount", "creditUsed", "additionaldiscount",
-    "HandlingFee", "shippingCharge", "totalQty", "unitPrice", "subTotal",
+    "HandlingFee", "shippingCharge", "unitPrice", "subTotal",
     "redeemedPoint", "earnedPoint",
 ]
 
@@ -86,6 +86,77 @@ def safe_str(val, default=""):
         return default
     s = str(val).strip()
     return default if s.lower() == "nan" else s
+
+
+def split_csv_field(val) -> list[str]:
+    return [x.strip() for x in safe_str(val).split(",") if x.strip()]
+
+
+def per_size_qty(size_str: str, pack_str: str, total_qty: int) -> str:
+    """Multi-size line: export comma-separated qty per size (e.g. 2,2,1,1)."""
+    sizes = split_csv_field(size_str)
+    packs = split_csv_field(pack_str)
+    if len(sizes) <= 1:
+        return str(total_qty)
+    if len(packs) == len(sizes):
+        try:
+            pack_nums = [int(float(p)) for p in packs]
+            if sum(pack_nums) == total_qty:
+                return ",".join(str(p) for p in pack_nums)
+        except ValueError:
+            pass
+        return ",".join(packs)
+    return str(total_qty)
+
+
+def sum_qty_field(val) -> int:
+    parts = split_csv_field(val)
+    if not parts:
+        return 0
+    total = 0
+    for part in parts:
+        try:
+            total += int(float(part))
+        except ValueError:
+            pass
+    return total
+
+
+def group_rows_by_style(rows: list[dict]) -> list[dict]:
+    """Merge same order + style + color into one row with comma-separated size/pack/qty."""
+    groups: dict[tuple, dict] = {}
+    order_keys: list[tuple] = []
+
+    for row in rows:
+        key = (row["orderId"], row["styleNo"], row["Color/Scent"])
+        if key not in groups:
+            groups[key] = {
+                **row,
+                "_sizes": split_csv_field(row["size"]),
+                "_packs": split_csv_field(row["pack"]),
+                "_qtys": split_csv_field(row["totalQty"]),
+            }
+            order_keys.append(key)
+            continue
+
+        g = groups[key]
+        g["_sizes"].extend(split_csv_field(row["size"]))
+        g["_packs"].extend(split_csv_field(row["pack"]))
+        g["_qtys"].extend(split_csv_field(row["totalQty"]))
+        g["subTotal"] += row["subTotal"]
+        g["totalAmount"] += row["totalAmount"]
+
+    merged = []
+    for idx, key in enumerate(order_keys, start=1):
+        g = groups[key]
+        g["orderDetailId"] = str(idx)
+        g["size"] = ",".join(g["_sizes"])
+        g["pack"] = ",".join(g["_packs"])
+        g["totalQty"] = ",".join(g["_qtys"])
+        for tmp in ("_sizes", "_packs", "_qtys"):
+            del g[tmp]
+        merged.append(g)
+    return merged
 
 
 def prepare_erp_export(df: pd.DataFrame) -> pd.DataFrame:
@@ -351,13 +422,14 @@ if uploaded_file is not None:
                     "Color/Scent": color or " ",
                     "size": size_str,
                     "pack": pack_str,
-                    "totalQty": qty,
+                    "totalQty": per_size_qty(size_str, pack_str, qty),
                     "unitPrice": price,
                     "subTotal": subtotal,
                     "totalAmount": subtotal,
                 })
                 output_rows.append(fg_row)
 
+            output_rows = group_rows_by_style(output_rows)
             converted_df = pd.DataFrame(output_rows, columns=fg_cols)
             export_df = prepare_erp_export(converted_df)
 
@@ -372,8 +444,9 @@ if uploaded_file is not None:
                 unsafe_allow_html=True,
             )
         with c2:
+            total_units = converted_df["totalQty"].apply(sum_qty_field).sum()
             st.markdown(
-                f'<div class="stat-card"><div class="stat-val">{int(converted_df["totalQty"].sum())} pcs</div>'
+                f'<div class="stat-card"><div class="stat-val">{int(total_units)} pcs</div>'
                 f'<div class="stat-lbl">Total Units</div></div>',
                 unsafe_allow_html=True,
             )
