@@ -496,6 +496,10 @@ SOURCES = {
 if "order_source" not in st.session_state:
     st.session_state.order_source = "faire"
 
+
+def _set_order_source(source: str) -> None:
+    st.session_state.order_source = source
+
 LOGO_URL = "/app/static/sky-logo.png"
 
 # Header notice — Skysoft
@@ -523,14 +527,32 @@ st.markdown(
 st.markdown('<div class="step-title">Select Order Source</div>', unsafe_allow_html=True)
 p1, p2, p3 = st.columns(3)
 with p1:
-    if st.button("🛍️  Faire", use_container_width=True, type="primary" if st.session_state.order_source == "faire" else "secondary"):
-        st.session_state.order_source = "faire"
+    st.button(
+        "🛍️  Faire",
+        use_container_width=True,
+        type="primary" if st.session_state.order_source == "faire" else "secondary",
+        on_click=_set_order_source,
+        args=("faire",),
+        key="platform_faire",
+    )
 with p2:
-    if st.button("🟢  Shopify", use_container_width=True, type="primary" if st.session_state.order_source == "shopify" else "secondary"):
-        st.session_state.order_source = "shopify"
+    st.button(
+        "🟢  Shopify",
+        use_container_width=True,
+        type="primary" if st.session_state.order_source == "shopify" else "secondary",
+        on_click=_set_order_source,
+        args=("shopify",),
+        key="platform_shopify",
+    )
 with p3:
-    if st.button("📄  Company Order", use_container_width=True, type="primary" if st.session_state.order_source == "company_order" else "secondary"):
-        st.session_state.order_source = "company_order"
+    st.button(
+        "📄  Company Order",
+        use_container_width=True,
+        type="primary" if st.session_state.order_source == "company_order" else "secondary",
+        on_click=_set_order_source,
+        args=("company_order",),
+        key="platform_company_order",
+    )
 
 source = st.session_state.order_source
 source_meta = SOURCES[source]
