@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -173,6 +174,10 @@ def sum_quantity_info(val) -> int:
         except ValueError:
             pass
     return total
+
+
+def pacific_now() -> datetime:
+    return datetime.now(ZoneInfo("America/Los_Angeles"))
 
 
 def convert_faire_to_sky(faire_df: pd.DataFrame) -> tuple[pd.DataFrame, set[str], float]:
@@ -447,7 +452,7 @@ if uploaded_file is not None:
         processed_data = write_sky_excel(converted_df)
 
         st.write("")
-        download_name = f"Faire_All_Orders_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        download_name = f"Faire_All_Orders_{pacific_now().strftime('%Y%m%d_%H%M')}.xlsx"
         st.download_button(
             label="🚀 Download Sky Upload Excel",
             data=processed_data,
