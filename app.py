@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -446,10 +447,11 @@ if uploaded_file is not None:
         processed_data = write_sky_excel(converted_df)
 
         st.write("")
+        download_name = f"Faire_All_Orders_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
         st.download_button(
             label="🚀 Download Sky Upload Excel",
             data=processed_data,
-            file_name="Sky_Upload_Orders.xlsx",
+            file_name=download_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
