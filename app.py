@@ -121,6 +121,33 @@ def parse_option_name(option_name: str) -> tuple[str, str, str]:
     return left, size, opt
 
 
+SIZE_ORDER = {
+    "XXS": 0, "XS": 1, "S": 2, "M": 3, "L": 4, "XL": 5,
+    "XXL": 6, "2XL": 6, "3XL": 7, "4XL": 8, "5XL": 9,
+    "OS": 90, "ONE SIZE": 90,
+}
+
+
+def extract_size_key(size_part: str) -> str:
+    s = safe_str(size_part)
+    if " / " in s:
+        return s.rsplit(" / ", 1)[1].strip().upper()
+    return s.upper()
+
+
+def size_sort_key(size_part: str) -> tuple:
+    key = extract_size_key(size_part)
+    return (SIZE_ORDER.get(key, 50), key)
+
+
+def sort_size_qty_pairs(sizes: list[str], qtys: list[str]) -> tuple[list[str], list[str]]:
+    pairs = sorted(zip(sizes, qtys), key=lambda pair: size_sort_key(pair[0]))
+    if not pairs:
+        return [], []
+    sorted_sizes, sorted_qtys = zip(*pairs)
+    return list(sorted_sizes), list(sorted_qtys)
+
+
 def build_ship_address(row) -> tuple[str, object]:
     addr1 = safe_str(row.get("Address 1", ""))
     addr2 = safe_str(row.get("Address 2", ""))
@@ -211,6 +238,7 @@ def convert_faire_to_sky(faire_df: pd.DataFrame) -> tuple[pd.DataFrame, set[str]
     rows = []
     for key in group_order:
         g = groups[key]
+        sizes, qtys = sort_size_qty_pairs(g["sizes"], g["qtys"])
         rows.append({
             "custpoNum": g["custpoNum"],
             "customer": g["customer"],
@@ -218,8 +246,8 @@ def convert_faire_to_sky(faire_df: pd.DataFrame) -> tuple[pd.DataFrame, set[str]
             "styleNum": g["styleNum"],
             "description": g["description"],
             "color": g["color"] if g["color"] else pd.NA,
-            "sizeInfo": ",".join(g["sizes"]),
-            "quantityInfo": ",".join(g["qtys"]),
+            "sizeInfo": ",".join(sizes),
+            "quantityInfo": ",".join(qtys),
             "unitPrice": g["unitPrice"],
             "Retail_Price": g["Retail_Price"],
             "SKU": g["SKU"],
