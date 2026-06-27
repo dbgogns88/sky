@@ -31,8 +31,22 @@ COLUMN_ALIASES = {
     "SKU": ["sku", "style no", "style number", "vendor style no"],
     "Option Name": ["option name", "variant", "color/scent", "color", "product option"],
     "Wholesale Price": ["wholesale price", "unit price", "price"],
+    "Retail Price": ["retail price"],
     "Quantity": ["quantity", "qty", "total qty", "item quantity"],
+    "Product Name": ["product name"],
+    "Address 2": ["address 2"],
+    "GTIN": ["gtin"],
+    "Scheduled Order Date": ["scheduled order date"],
+    "Notes": ["notes", "memo"],
 }
+
+OUTPUT_COLS = [
+    "custpoNum", "customer", "Order_Date", "styleNum", "description", "color",
+    "sizeInfo", "quantityInfo", "unitPrice", "Retail_Price", "SKU",
+    "Purchase_Order_Number", "state", "zipCode", "Country", "GTIN", "Status",
+    "Ship_Date", "Scheduled_Order_Date", "memo", "shipAdd1", "shipAdd2",
+    "Product_Name", "Option_Name",
+]
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -64,23 +78,6 @@ def get_missing_columns(df: pd.DataFrame, required: list[str]) -> list[str]:
     return [col for col in required if col not in df.columns]
 
 
-TEXT_COLS = [
-    "orderDetailId", "orderId", "orderDate", "poNumber", "companyName",
-    "orderStatus", "confirmDate", "shipDate", "payment", "shipment",
-    "phoneNumber", "fax", "billingStreet", "billingCity", "billingState",
-    "billingZipcode", "billingCountry", "shipToCompanyName", "shippingStreet",
-    "shippingCity", "shippingState", "shippingZipcode", "shippingCountry",
-    "styleNo", "vendorStyleNo", "Color/Scent", "size", "pack", "totalQty",
-    "stockAvailability", "supplierName", "cancelDate",
-]
-
-NUMERIC_COLS = [
-    "totalAmount", "discount", "couponAmount", "creditUsed", "additionaldiscount",
-    "HandlingFee", "shippingCharge", "unitPrice", "subTotal",
-    "redeemedPoint", "earnedPoint",
-]
-
-
 def safe_str(val, default=""):
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return default
@@ -88,33 +85,61 @@ def safe_str(val, default=""):
     return default if s.lower() == "nan" else s
 
 
-def split_csv_field(val) -> list[str]:
-    return [x.strip() for x in safe_str(val).split(",") if x.strip()]
+def parse_price(val) -> float:
+    try:
+        return float(str(val).replace("$", "").replace(",", "").strip())
+    except (ValueError, TypeError):
+        return 0.0
 
 
-def per_size_qty(size_str: str, pack_str: str, total_qty: int) -> str:
-    """Multi-size line: export comma-separated qty per size (e.g. 2,2,1,1)."""
-    sizes = split_csv_field(size_str)
-    packs = split_csv_field(pack_str)
-    if len(sizes) <= 1:
-        return str(total_qty)
-    if len(packs) == len(sizes):
-        try:
-            pack_nums = [int(float(p)) for p in packs]
-            if sum(pack_nums) == total_qty:
-                return ",".join(str(p) for p in pack_nums)
-        except ValueError:
-            pass
-        return ",".join(packs)
-    return str(total_qty)
+def fmt_date(val) -> str:
+    s = safe_str(val)
+    if not s:
+        return ""
+    lower = s.lower()
+    if "no ship" in lower or "no scheduled" in lower:
+        return s
+    try:
+        return pd.to_datetime(val, dayfirst=False).strftime("%Y%m%d")
+    except Exception:
+        return s
 
 
-def sum_qty_field(val) -> int:
-    parts = split_csv_field(val)
-    if not parts:
-        return 0
+def parse_option_name(option_name: str) -> tuple[str, str, str]:
+    """Return (color, sizeInfo part, full Option_Name)."""
+    opt = safe_str(option_name)
+    if not opt:
+        return "", "", opt
+    if " / " not in opt:
+        return "", opt, opt
+
+    left, size = opt.rsplit(" / ", 1)
+    left, size = left.strip(), size.strip()
+    if "/" in left:
+        primary, secondary = left.split("/", 1)
+        return primary.strip(), f"{secondary.strip()} / {size}", opt
+    return left, size, opt
+
+
+def build_ship_address(row) -> tuple[str, object]:
+    addr1 = safe_str(row.get("Address 1", ""))
+    addr2 = safe_str(row.get("Address 2", ""))
+    ship_add1 = f"{addr1} {addr2}".strip() if addr2 else addr1
+    city = safe_str(row.get("City", ""))
+    ship_add2 = city if city else pd.NA
+    return ship_add1, ship_add2
+
+
+def optional_field(val):
+    return val if pd.notna(val) and safe_str(val) else pd.NA
+
+
+def sum_quantity_info(val) -> int:
     total = 0
-    for part in parts:
+    for part in safe_str(val).split(","):
+        part = part.strip()
+        if not part:
+            continue
         try:
             total += int(float(part))
         except ValueError:
@@ -122,86 +147,104 @@ def sum_qty_field(val) -> int:
     return total
 
 
-def group_rows_by_style(rows: list[dict]) -> list[dict]:
-    """Merge same order + style + color into one row with comma-separated size/pack/qty."""
-    groups: dict[tuple, dict] = {}
-    order_keys: list[tuple] = []
+def convert_faire_to_sky(faire_df: pd.DataFrame) -> tuple[pd.DataFrame, set[str], float]:
+    """Convert Faire order summary CSV rows to Sky upload Excel format."""
+    groups: dict[tuple[str, str], dict] = {}
+    group_order: list[tuple[str, str]] = []
+    unique_orders: set[str] = set()
+    total_order_amt = 0.0
 
-    for row in rows:
-        key = (row["orderId"], row["styleNo"], row["Color/Scent"])
+    for _, row in faire_df.iterrows():
+        order_no = safe_str(row.get("Order Number", ""))
+        sku = safe_str(row.get("SKU", ""))
+        if not order_no or not sku:
+            continue
+
+        unique_orders.add(order_no)
+        color, size_part, full_opt = parse_option_name(row.get("Option Name", ""))
+        try:
+            qty = int(float(row["Quantity"]))
+        except (ValueError, TypeError):
+            qty = 0
+
+        price = parse_price(row.get("Wholesale Price", 0))
+        total_order_amt += qty * price
+
+        key = (order_no, sku)
         if key not in groups:
+            ship_add1, ship_add2 = build_ship_address(row)
+            notes = row.get("Notes")
+            memo = safe_str(notes) if pd.notna(notes) and safe_str(notes) else "'-"
             groups[key] = {
-                **row,
-                "_sizes": split_csv_field(row["size"]),
-                "_packs": split_csv_field(row["pack"]),
-                "_qtys": split_csv_field(row["totalQty"]),
+                "sizes": [size_part],
+                "qtys": [str(qty)],
+                "color": color,
+                "first_opt": full_opt,
+                "custpoNum": order_no,
+                "customer": safe_str(row.get("Retailer Name", "")),
+                "Order_Date": fmt_date(row.get("Order Date", "")),
+                "styleNum": sku,
+                "description": safe_str(row.get("Product Name", "")),
+                "unitPrice": price,
+                "Retail_Price": parse_price(row.get("Retail Price", 0)),
+                "SKU": sku,
+                "Purchase_Order_Number": optional_field(row.get("Purchase Order Number")),
+                "state": safe_str(row.get("State", "")),
+                "zipCode": safe_str(row.get("Zip Code", "")),
+                "Country": safe_str(row.get("Country", "")),
+                "GTIN": optional_field(row.get("GTIN")),
+                "Status": safe_str(row.get("Status", "")),
+                "Ship_Date": fmt_date(row.get("Ship Date", "")),
+                "Scheduled_Order_Date": fmt_date(row.get("Scheduled Order Date", "")),
+                "memo": memo,
+                "shipAdd1": ship_add1,
+                "shipAdd2": ship_add2,
+                "Product_Name": safe_str(row.get("Product Name", "")),
+                "Option_Name": full_opt,
             }
-            order_keys.append(key)
-            continue
+            group_order.append(key)
+        else:
+            g = groups[key]
+            g["sizes"].append(size_part)
+            g["qtys"].append(str(qty))
 
+    rows = []
+    for key in group_order:
         g = groups[key]
-        g["_sizes"].extend(split_csv_field(row["size"]))
-        g["_packs"].extend(split_csv_field(row["pack"]))
-        g["_qtys"].extend(split_csv_field(row["totalQty"]))
-        g["subTotal"] += row["subTotal"]
-        g["totalAmount"] += row["totalAmount"]
+        rows.append({
+            "custpoNum": g["custpoNum"],
+            "customer": g["customer"],
+            "Order_Date": g["Order_Date"],
+            "styleNum": g["styleNum"],
+            "description": g["description"],
+            "color": g["color"] if g["color"] else pd.NA,
+            "sizeInfo": ",".join(g["sizes"]),
+            "quantityInfo": ",".join(g["qtys"]),
+            "unitPrice": g["unitPrice"],
+            "Retail_Price": g["Retail_Price"],
+            "SKU": g["SKU"],
+            "Purchase_Order_Number": g["Purchase_Order_Number"],
+            "state": g["state"],
+            "zipCode": g["zipCode"],
+            "Country": g["Country"],
+            "GTIN": g["GTIN"],
+            "Status": g["Status"],
+            "Ship_Date": g["Ship_Date"],
+            "Scheduled_Order_Date": g["Scheduled_Order_Date"],
+            "memo": g["memo"],
+            "shipAdd1": g["shipAdd1"],
+            "shipAdd2": g["shipAdd2"],
+            "Product_Name": g["Product_Name"],
+            "Option_Name": g["first_opt"],
+        })
 
-    merged = []
-    for idx, key in enumerate(order_keys, start=1):
-        g = groups[key]
-        g["orderDetailId"] = str(idx)
-        g["size"] = ",".join(g["_sizes"])
-        g["pack"] = ",".join(g["_packs"])
-        g["totalQty"] = ",".join(g["_qtys"])
-        for tmp in ("_sizes", "_packs", "_qtys"):
-            del g[tmp]
-        merged.append(g)
-    return merged
-
-
-def prepare_erp_export(df: pd.DataFrame) -> pd.DataFrame:
-    """Fill empty cells with defaults to prevent DBNull errors on ERP (.NET) import."""
-    export_df = df.copy()
-
-    for col in TEXT_COLS:
-        if col not in export_df.columns:
-            continue
-        export_df[col] = export_df[col].apply(safe_str)
-        # Empty Excel cells become DBNull — replace empty strings with a single space
-        export_df[col] = export_df[col].replace("", " ")
-
-    for col in NUMERIC_COLS:
-        if col not in export_df.columns:
-            continue
-        export_df[col] = pd.to_numeric(export_df[col], errors="coerce").fillna(0)
-
-    return export_df
+    return pd.DataFrame(rows, columns=OUTPUT_COLS), unique_orders, total_order_amt
 
 
-def write_erp_excel(df: pd.DataFrame) -> bytes:
-    """Write ERP-compatible Excel with openpyxl, ensuring no blank (None) cells."""
-    from openpyxl import Workbook
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Order"
-
-    cols = df.columns.tolist()
-    ws.append(cols)
-
-    for _, row in df.iterrows():
-        values = []
-        for col in cols:
-            val = row[col]
-            if col in NUMERIC_COLS:
-                values.append(float(val) if pd.notna(val) else 0)
-            else:
-                s = safe_str(val, " ")
-                values.append(s if s else " ")
-        ws.append(values)
-
+def write_sky_excel(df: pd.DataFrame) -> bytes:
     output = BytesIO()
-    wb.save(output)
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Order")
     return output.getvalue()
 
 
@@ -319,7 +362,7 @@ if uploaded_file is not None:
 
             required_cols = [
                 "Order Number", "Order Date", "Retailer Name", "Status",
-                "SKU", "Option Name", "Wholesale Price", "Quantity",
+                "SKU", "Option Name", "Wholesale Price", "Quantity", "Product Name",
             ]
             missing = get_missing_columns(faire_df, required_cols)
             if missing:
@@ -336,102 +379,7 @@ if uploaded_file is not None:
                 st.warning("⚠️ File was read, but no valid order data (Order Number) was found.")
                 st.stop()
 
-            fg_cols = [
-                "orderDetailId", "orderId", "orderDate", "poNumber", "companyName", "totalAmount",
-                "discount", "couponAmount", "creditUsed", "additionaldiscount", "HandlingFee",
-                "shippingCharge", "orderStatus", "confirmDate", "shipDate", "payment", "shipment",
-                "phoneNumber", "fax", "billingStreet", "billingCity", "billingState", "billingZipcode",
-                "billingCountry", "shipToCompanyName", "shippingStreet", "shippingCity", "shippingState",
-                "shippingZipcode", "shippingCountry", "styleNo", "vendorStyleNo", "Color/Scent",
-                "size", "pack", "totalQty", "unitPrice", "subTotal", "stockAvailability",
-                "redeemedPoint", "earnedPoint", "supplierName", "cancelDate",
-            ]
-
-            output_rows = []
-            total_order_amt = 0.0
-            unique_orders = set()
-
-            def parse_date(d_str):
-                if pd.isna(d_str) or not str(d_str).strip():
-                    return " "
-                try:
-                    return pd.to_datetime(d_str).strftime("%m/%d/%Y")
-                except Exception:
-                    return safe_str(d_str, " ")
-
-            for _, row in faire_df.iterrows():
-                opt_name = safe_str(row.get("Option Name", ""))
-                color, pack_str, size_str = "", "", ""
-
-                if "/" in opt_name:
-                    color_part, size_part = opt_name.split("/", 1)
-                    color = color_part.strip()
-                    size_part = size_part.strip()
-                    if "-" in size_part:
-                        p_part, s_part = size_part.split("-", 1)
-                        pack_str = ",".join(p_part.strip().split("/"))
-                        size_str = "S,M,L" if s_part.strip().upper() == "SML" else s_part.strip()
-                    else:
-                        pack_str = size_part
-                else:
-                    color = opt_name
-
-                if not size_str:
-                    size_str = "OS"
-                if not pack_str:
-                    pack_str = "1"
-
-                price = 0.0
-                try:
-                    price = float(str(row["Wholesale Price"]).replace("$", "").replace(",", "").strip())
-                except (ValueError, TypeError):
-                    pass
-
-                qty = row["Quantity"]
-                try:
-                    qty = int(float(qty))
-                except (ValueError, TypeError):
-                    qty = 0
-
-                subtotal = qty * price
-                total_order_amt += subtotal
-                unique_orders.add(row["Order Number"])
-
-                fg_row = {c: " " for c in fg_cols}
-                fg_row.update({
-                    "orderDetailId": str(len(output_rows) + 1),
-                    "orderId": safe_str(row["Order Number"]),
-                    "orderDate": parse_date(row["Order Date"]),
-                    "poNumber": safe_str(row.get("Purchase Order Number", "")),
-                    "companyName": safe_str(row["Retailer Name"]),
-                    "orderStatus": "Confirmed" if safe_str(row["Status"]) == "Processing" else safe_str(row["Status"]),
-                    "shipDate": parse_date(row.get("Ship Date", "")),
-                    "billingStreet": safe_str(row.get("Address 1", "")),
-                    "billingCity": safe_str(row.get("City", "")),
-                    "billingState": safe_str(row.get("State", "")),
-                    "billingZipcode": safe_str(row.get("Zip Code", "")),
-                    "billingCountry": safe_str(row.get("Country", "")),
-                    "shipToCompanyName": safe_str(row["Retailer Name"]),
-                    "shippingStreet": safe_str(row.get("Address 1", "")),
-                    "shippingCity": safe_str(row.get("City", "")),
-                    "shippingState": safe_str(row.get("State", "")),
-                    "shippingZipcode": safe_str(row.get("Zip Code", "")),
-                    "shippingCountry": safe_str(row.get("Country", "")),
-                    "styleNo": safe_str(row["SKU"]),
-                    "vendorStyleNo": safe_str(row["SKU"]),
-                    "Color/Scent": color or " ",
-                    "size": size_str,
-                    "pack": pack_str,
-                    "totalQty": per_size_qty(size_str, pack_str, qty),
-                    "unitPrice": price,
-                    "subTotal": subtotal,
-                    "totalAmount": subtotal,
-                })
-                output_rows.append(fg_row)
-
-            output_rows = group_rows_by_style(output_rows)
-            converted_df = pd.DataFrame(output_rows, columns=fg_cols)
-            export_df = prepare_erp_export(converted_df)
+            converted_df, unique_orders, total_order_amt = convert_faire_to_sky(faire_df)
 
         st.write("---")
         st.markdown('<div class="step-title" style="margin-bottom: 16px;">STEP 2. Conversion Results & Summary</div>', unsafe_allow_html=True)
@@ -444,7 +392,7 @@ if uploaded_file is not None:
                 unsafe_allow_html=True,
             )
         with c2:
-            total_units = converted_df["totalQty"].apply(sum_qty_field).sum()
+            total_units = converted_df["quantityInfo"].apply(sum_quantity_info).sum()
             st.markdown(
                 f'<div class="stat-card"><div class="stat-val">{int(total_units)} pcs</div>'
                 f'<div class="stat-lbl">Total Units</div></div>',
@@ -460,11 +408,14 @@ if uploaded_file is not None:
         st.write("")
 
         st.dataframe(
-            converted_df[["orderId", "companyName", "styleNo", "Color/Scent", "size", "pack", "totalQty", "unitPrice"]],
+            converted_df[[
+                "custpoNum", "customer", "styleNum", "color",
+                "sizeInfo", "quantityInfo", "unitPrice",
+            ]],
             use_container_width=True,
         )
 
-        processed_data = write_erp_excel(export_df)
+        processed_data = write_sky_excel(converted_df)
 
         st.write("")
         st.download_button(
