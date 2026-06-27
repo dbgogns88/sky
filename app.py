@@ -417,18 +417,6 @@ st.markdown("""
         white-space: nowrap;
         letter-spacing: 0.03em;
     }
-    .skysoft-brand {
-        font-size: 12px;
-        font-weight: 600;
-        color: #818CF8;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        margin-bottom: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-    }
     .platform-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -521,10 +509,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-st.markdown(
-    f'<div class="skysoft-brand"><img src="{LOGO_URL}" class="sky-logo" alt="Sky"/> Skysoft</div>',
-    unsafe_allow_html=True,
-)
+
 st.markdown(
     f'<div class="main-header"><img src="{LOGO_URL}" class="sky-logo-lg" alt="Sky"/> Sky Order Converter</div>',
     unsafe_allow_html=True,
