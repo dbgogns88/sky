@@ -10,7 +10,7 @@ from pwa import inject_pwa
 # Page config and custom CSS
 st.set_page_config(
     page_title="Sky Order Converter",
-    page_icon="👗",
+    page_icon="static/sky-logo.png",
     layout="centered"
 )
 
@@ -308,11 +308,36 @@ st.markdown("""
         background-color: #0B1120;
     }
 
+    .sky-logo {
+        height: 22px;
+        width: 22px;
+        vertical-align: middle;
+        margin-right: 6px;
+        object-fit: contain;
+    }
+    .sky-logo-md {
+        height: 30px;
+        width: 30px;
+        vertical-align: middle;
+        margin-right: 10px;
+        object-fit: contain;
+    }
+    .sky-logo-lg {
+        height: 36px;
+        width: 36px;
+        vertical-align: middle;
+        margin-right: 10px;
+        object-fit: contain;
+    }
     .main-header {
         font-size: 28px;
         font-weight: 700;
         color: #F1F5F9;
         margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
     }
     .sub-header {
         font-size: 15px;
@@ -369,14 +394,197 @@ st.markdown("""
     hr {
         border-color: #1E293B !important;
     }
+
+    .sky-notice {
+        background: linear-gradient(90deg, rgba(99,102,241,0.18), rgba(129,140,248,0.10));
+        border: 1px solid rgba(129, 140, 248, 0.35);
+        border-radius: 10px;
+        padding: 10px 16px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+        color: #C7D2FE;
+    }
+    .sky-notice-badge {
+        background: #6366F1;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+        letter-spacing: 0.03em;
+    }
+    .skysoft-brand {
+        font-size: 12px;
+        font-weight: 600;
+        color: #818CF8;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+    }
+    .platform-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 28px;
+    }
+    .platform-card {
+        background: #151E2E;
+        border: 1px solid #1E293B;
+        border-radius: 12px;
+        padding: 16px 12px;
+        text-align: center;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .platform-card.active {
+        border-color: #818CF8;
+        box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.25);
+        background: linear-gradient(180deg, #1a2236 0%, #151E2E 100%);
+    }
+    .platform-card.coming {
+        opacity: 0.85;
+    }
+    .platform-icon {
+        font-size: 22px;
+        margin-bottom: 6px;
+    }
+    .platform-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #E2E8F0;
+    }
+    .platform-status {
+        font-size: 11px;
+        margin-top: 4px;
+        color: #94A3B8;
+    }
+    .platform-status.live { color: #34D399; }
+    .platform-status.soon { color: #FBBF24; }
+    .coming-soon-box {
+        background: #151E2E;
+        border: 1px dashed #334155;
+        border-radius: 14px;
+        padding: 40px 24px;
+        text-align: center;
+        margin-top: 8px;
+    }
+    .coming-soon-box h3 {
+        color: #F1F5F9;
+        font-size: 20px;
+        margin: 0 0 8px 0;
+    }
+    .coming-soon-box p {
+        color: #94A3B8;
+        font-size: 14px;
+        margin: 0;
+        line-height: 1.6;
+    }
+    .upload-card {
+        background: #151E2E;
+        border: 1px solid #1E293B;
+        border-radius: 14px;
+        padding: 20px;
+        margin-bottom: 8px;
+    }
+    div[data-testid="stHorizontalBlock"] button {
+        border-radius: 10px !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# Header section
-st.markdown('<div class="main-header">⚡ Sky Order Converter</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Instantly convert Faire order files to Sky upload format.</div>', unsafe_allow_html=True)
+SOURCES = {
+    "faire": {"label": "Faire", "icon": "🛍️", "live": True},
+    "shopify": {"label": "Shopify", "icon": "🟢", "live": False},
+    "company_order": {"label": "Company Order", "icon": "📄", "live": False},
+}
 
-# 3. File upload section (Step 1)
+if "order_source" not in st.session_state:
+    st.session_state.order_source = "faire"
+
+LOGO_URL = "/app/static/sky-logo.png"
+
+# Header notice — Skysoft
+st.markdown(f"""
+    <div class="sky-notice">
+        <span class="sky-notice-badge">SKYSOFT</span>
+        <span>
+            <img src="{LOGO_URL}" class="sky-logo" alt="Sky"/>
+            <strong>Sky New App</strong> coming soon — stay tuned for the next release from Skysoft.
+        </span>
+    </div>
+""", unsafe_allow_html=True)
+
+st.markdown(
+    f'<div class="skysoft-brand"><img src="{LOGO_URL}" class="sky-logo" alt="Sky"/> Skysoft</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    f'<div class="main-header"><img src="{LOGO_URL}" class="sky-logo-lg" alt="Sky"/> Sky Order Converter</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="sub-header">Convert order files from multiple platforms into Sky upload Excel format.</div>',
+    unsafe_allow_html=True,
+)
+
+# Platform selector
+st.markdown('<div class="step-title">Select Order Source</div>', unsafe_allow_html=True)
+p1, p2, p3 = st.columns(3)
+with p1:
+    if st.button("🛍️  Faire", use_container_width=True, type="primary" if st.session_state.order_source == "faire" else "secondary"):
+        st.session_state.order_source = "faire"
+with p2:
+    if st.button("🟢  Shopify", use_container_width=True, type="primary" if st.session_state.order_source == "shopify" else "secondary"):
+        st.session_state.order_source = "shopify"
+with p3:
+    if st.button("📄  Company Order", use_container_width=True, type="primary" if st.session_state.order_source == "company_order" else "secondary"):
+        st.session_state.order_source = "company_order"
+
+source = st.session_state.order_source
+source_meta = SOURCES[source]
+
+# Status badge under buttons
+if source_meta["live"]:
+    st.markdown(
+        f'<p style="color:#34D399;font-size:13px;margin:4px 0 20px 0;">● {source_meta["label"]} converter is <strong>live</strong></p>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        f'<p style="color:#FBBF24;font-size:13px;margin:4px 0 20px 0;">● {source_meta["label"]} converter — <strong>Coming Soon</strong></p>',
+        unsafe_allow_html=True,
+    )
+
+# Coming Soon platforms
+if not source_meta["live"]:
+    st.markdown(f"""
+        <div class="coming-soon-box">
+            <h3>🚀 {source_meta["label"]} — Coming Soon</h3>
+            <p>
+                Upload your {source_meta["label"]} order Excel file here and it will be<br>
+                automatically converted to Sky upload format.<br><br>
+                <strong>This feature is under development.</strong>
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    st.file_uploader(
+        f"Upload {source_meta['label']} order file (preview)",
+        type=["csv", "xlsx", "xls"],
+        label_visibility="collapsed",
+        disabled=True,
+        key=f"uploader_{source}",
+    )
+    st.info(f"**{source_meta['label']}** order conversion is coming soon. Please use **Faire** for now.")
+    st.stop()
+
+# Faire — live converter
 st.markdown('<div class="step-title">STEP 1. Upload Faire Order File</div>', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader(
