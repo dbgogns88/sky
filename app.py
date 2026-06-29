@@ -1,9 +1,13 @@
+import base64
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
-import streamlit as st
-import pandas as pd
 from io import BytesIO
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import streamlit as st
+from PIL import Image
 
 from pwa import inject_pwa
 
@@ -417,6 +421,11 @@ st.markdown("""
         white-space: nowrap;
         letter-spacing: 0.03em;
     }
+    .sky-notice-text {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
     .platform-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -500,22 +509,39 @@ if "order_source" not in st.session_state:
 def _set_order_source(source: str) -> None:
     st.session_state.order_source = source
 
-LOGO_URL = "/app/static/sky-logo.png"
+
+@st.cache_data(show_spinner=False)
+def _sky_logo_data_url() -> str:
+    """Inline logo as base64 so it renders reliably in HTML on Streamlit Cloud."""
+    logo_path = Path(__file__).resolve().parent / "static" / "sky-logo.png"
+    img = Image.open(logo_path).convert("RGBA")
+    pixels = [
+        (r, g, b, 0) if r < 40 and g < 40 and b < 40 else (r, g, b, a)
+        for r, g, b, a in img.getdata()
+    ]
+    img.putdata(pixels)
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+LOGO_URL = _sky_logo_data_url()
 
 # Header notice — Skysoft
 st.markdown(f"""
     <div class="sky-notice">
         <span class="sky-notice-badge">SKYSOFT</span>
-        <span>
-            <img src="{LOGO_URL}" class="sky-logo" alt="Sky"/>
-            <strong>Sky New App</strong> coming soon — stay tuned for the next release from Skysoft.
+        <span class="sky-notice-text">
+            <img src="{LOGO_URL}" class="sky-logo" alt=""/>
+            <span><strong>Sky New App</strong> coming soon — stay tuned for the next release from Skysoft.</span>
         </span>
     </div>
 """, unsafe_allow_html=True)
 
 
 st.markdown(
-    f'<div class="main-header"><img src="{LOGO_URL}" class="sky-logo-lg" alt="Sky"/> Sky Order Converter</div>',
+    f'<div class="main-header"><img src="{LOGO_URL}" class="sky-logo-lg" alt=""/> Sky Order Converter</div>',
     unsafe_allow_html=True,
 )
 st.markdown(
