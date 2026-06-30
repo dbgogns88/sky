@@ -112,19 +112,15 @@ def fmt_date(val) -> str:
 
 
 def parse_option_name(option_name: str) -> tuple[str, str, str]:
-    """Return (color, sizeInfo part, full Option_Name)."""
+    """Return (color, size, full Option_Name). Split only on the last ' / '."""
     opt = safe_str(option_name)
     if not opt:
         return "", "", opt
     if " / " not in opt:
         return "", opt, opt
 
-    left, size = opt.rsplit(" / ", 1)
-    left, size = left.strip(), size.strip()
-    if "/" in left:
-        primary, secondary = left.split("/", 1)
-        return primary.strip(), f"{secondary.strip()} / {size}", opt
-    return left, size, opt
+    color, size = opt.rsplit(" / ", 1)
+    return color.strip(), size.strip(), opt
 
 
 SIZE_ORDER = {
@@ -135,10 +131,7 @@ SIZE_ORDER = {
 
 
 def extract_size_key(size_part: str) -> str:
-    s = safe_str(size_part)
-    if " / " in s:
-        return s.rsplit(" / ", 1)[1].strip().upper()
-    return s.upper()
+    return safe_str(size_part).upper()
 
 
 def size_sort_key(size_part: str) -> tuple:
@@ -186,8 +179,8 @@ def pacific_now() -> datetime:
 
 def convert_faire_to_sky(faire_df: pd.DataFrame) -> tuple[pd.DataFrame, set[str], float]:
     """Convert Faire order summary CSV rows to Sky upload Excel format."""
-    groups: dict[tuple[str, str], dict] = {}
-    group_order: list[tuple[str, str]] = []
+    groups: dict[tuple[str, str, str], dict] = {}
+    group_order: list[tuple[str, str, str]] = []
     unique_orders: set[str] = set()
     total_order_amt = 0.0
 
@@ -207,7 +200,7 @@ def convert_faire_to_sky(faire_df: pd.DataFrame) -> tuple[pd.DataFrame, set[str]
         price = parse_price(row.get("Wholesale Price", 0))
         total_order_amt += qty * price
 
-        key = (order_no, sku)
+        key = (order_no, sku, color)
         if key not in groups:
             ship_add1, ship_add2 = build_ship_address(row)
             notes = row.get("Notes")
